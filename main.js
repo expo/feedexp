@@ -1,5 +1,7 @@
 import React, {
+  Animated,
   AppRegistry,
+  ProgressBarAndroid,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -11,6 +13,12 @@ import { Lokka } from 'lokka';
 import { Transport } from 'lokka-transport-http';
 
 const FeedView = require('FeedView');
+const performanceNow = require('performanceNow');
+
+function burnCPU(milliseconds) {
+  const start = performanceNow();
+  while (performanceNow() < (start + milliseconds)) {}
+}
 
 let client = new Lokka({
   transport: new Transport('http://www.graphqlhub.com/graphql')
@@ -40,7 +48,7 @@ function fetchStories(count, offset=0) {
   });
 }
 
-const StoriesPerPage = 1;
+const StoriesPerPage = 30;
 
 class Main extends React.Component {
 
@@ -53,6 +61,7 @@ class Main extends React.Component {
 
     this.state = {
       dataSource,
+      loadingOpacity: new Animated.Value(0),
       offset: 0,
       stories: List(),
     };
@@ -66,22 +75,34 @@ class Main extends React.Component {
     return (
       <View style={styles.container}>
         <FeedView
+          contentContainerStyle={styles.listContentContainer}
+          pageSize={StoriesPerPage}
           renderRow={this._renderRow.bind(this)}
           dataSource={this.state.dataSource} />
         <TouchableOpacity style={styles.moreButtonContainer} onPress={this._loadStories.bind(this)}>
           <Text style={styles.moreButton}>
             Load more!
           </Text>
+          <Animated.View style={{opacity: this.state.loadingOpacity, marginLeft: -15, transform: [{scale: 0.35}]}}>
+            <ProgressBarAndroid color="orange" />
+          </Animated.View>
         </TouchableOpacity>
       </View>
     );
   }
 
   _renderRow(story) {
+    burnCPU(70);
+
     return (
-      <View style={styles.row}>
-        <Text>{story.get('title')}</Text>
-      </View>
+      <TouchableOpacity style={styles.row}>
+        <Text style={styles.title}>
+          {story.get('title')}
+        </Text>
+        <Text style={styles.author}>
+          {story.getIn(['by', 'id'])}
+        </Text>
+      </TouchableOpacity>
     );
   }
 
@@ -92,18 +113,23 @@ class Main extends React.Component {
 
     try {
       this._isLoading = true;
+      Animated.spring(this.state.loadingOpacity, {toValue: 1}).start();
       let newStories = await fetchStories(StoriesPerPage, this.state.offset);
       let stories = this.state.stories.concat(newStories);
 
-      this.setState(state => ({
-        dataSource: state.dataSource.cloneWithRows(stories.toArray()),
-        offset: state.offset + StoriesPerPage,
-        stories,
-      }));
+      this.state.loadingOpacity.setValue(0.5);
+      requestAnimationFrame(() => {
+        this.setState(state => ({
+          dataSource: state.dataSource.cloneWithRows(stories.toArray()),
+          offset: state.offset + StoriesPerPage,
+          stories,
+        }));
+      });
     } catch(error) {
       alert(`Uh oh it didn't work`);
     } finally {
       this._isLoading = false;
+      Animated.spring(this.state.loadingOpacity, {toValue: 0}).start();
     }
   }
 }
@@ -111,8 +137,11 @@ class Main extends React.Component {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 35,
+    paddingTop: 25,
     backgroundColor: '#eee',
+  },
+  listContentContainer: {
+    paddingBottom: 50,
   },
   moreButtonContainer: {
     position: 'absolute',
@@ -120,13 +149,27 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 50,
+    paddingLeft: 20,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'black',
+    flexDirection: 'row',
   },
   moreButton: {
     color: '#fff',
   },
+  title: {
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  author: {
+    color: 'rgba(0,0,0,0.8)',
+  },
+  row: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  }
 });
 
 
