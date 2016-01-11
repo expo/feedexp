@@ -92,11 +92,22 @@ class Main extends React.Component {
     );
   }
 
+  _removeStory(story) {
+    let { stories } = this.state;
+    let i = stories.indexOf(story);
+    let updatedStories = stories.remove(i);
+
+    this.setState(state => ({
+      dataSource: state.dataSource.cloneWithRows(updatedStories.toArray()),
+      stories: updatedStories,
+    }));
+  }
+
   _renderRow(story) {
     burnCPU(70);
 
     return (
-      <TouchableOpacity style={styles.row}>
+      <TouchableOpacity style={styles.row} onPress={() => this._removeStory(story) }>
         <Text style={styles.title}>
           {story.get('title')}
         </Text>

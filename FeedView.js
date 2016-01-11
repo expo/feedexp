@@ -220,8 +220,7 @@ var FeedView = React.createClass({
 
   componentWillReceiveProps: function(nextProps) {
     if (this.props.dataSource !== nextProps.dataSource) {
-      this._prevRenderedRowsCount = 0;
-      this._pageInNewRows(nextProps);
+      this._pageInNewRows(nextProps, true);
     }
   },
 
@@ -250,6 +249,7 @@ var FeedView = React.createClass({
     for (var sectionIdx = 0; sectionIdx < allRowIDs.length; sectionIdx++) {
       var sectionID = dataSource.sectionIdentities[sectionIdx];
       var rowIDs = allRowIDs[sectionIdx];
+
       if (rowIDs.length === 0) {
         continue;
       }
@@ -274,9 +274,24 @@ var FeedView = React.createClass({
       for (var rowIdx = 0; rowIdx < rowIDs.length; rowIdx++) {
         var rowID = rowIDs[rowIdx];
         var comboID = sectionID + '_' + rowID;
+
         var shouldUpdateRow = rowCount >= this._prevRenderedRowsCount &&
           dataSource.rowShouldUpdate(sectionIdx, rowIdx);
         var key = 'r_' + comboID;
+
+        // var row =
+        //   <StaticRenderer
+        //     key={key}
+        //     shouldUpdate={!!shouldUpdateRow}
+        //     render={this.props.renderRow.bind(
+        //       null,
+        //       dataSource.getRowData(sectionIdx, rowIdx),
+        //       sectionID,
+        //       rowID,
+        //       this.onRowHighlighted
+        //     )}
+        //   />;
+
         var row =
           <StaticRenderer
             key={key}
@@ -353,7 +368,6 @@ var FeedView = React.createClass({
     return (
       <IncrementalRowRenderer
         isVisible={this._isUpdatedBatchComplete(updateBatchId)}
-        key={key + '-inc'}
         onRender={() => { this._onRenderRowInBatch(updateBatchId) }}
         rowID={rowID}
         ref={view => { this._rowRefs[rowID] = view; }}
@@ -377,7 +391,6 @@ var FeedView = React.createClass({
     this._updateBatches[updateBatchId].complete += 1;
 
     if (this._isUpdatedBatchComplete(updateBatchId)) {
-      console.log(this._rowRefs.length);
       this._presentBatch(updateBatchId);
       this.props.onPresentBatch && this.props.onPresentBatch();
     }
@@ -460,23 +473,33 @@ var FeedView = React.createClass({
     }
   },
 
-  _pageInNewRows: function(props = this.props) {
+  _pageInNewRows: function(props = this.props, resetRowCount = false) {
     if (this._isUpdatedBatchComplete(this.state.updateBatchId)) {
       var rowsToRender = Math.min(
         this.state.curRenderedRowsCount + props.pageSize,
         props.dataSource.getRowCount()
       );
 
-      var updateBatchId = this.state.updateBatchId + 1;
+      var actualPageSize = rowsToRender - this.state.curRenderedRowsCount;
+      var updateBatchId = this.state.updateBatchId;
 
-      this._updateBatches[updateBatchId] = {
-        rows: rowsToRender - this.state.curRenderedRowsCount,
-        complete: 0,
-        firstRow: this.state.curRenderedRowsCount,
-      };
+      if (actualPageSize > 0) {
+        updateBatchId += 1;
+
+        this._updateBatches[updateBatchId] = {
+          complete: 0,
+          firstRow: this.state.curRenderedRowsCount,
+          rows: actualPageSize,
+        };
+      }
 
       this.setState((state, props) => {
-        this._prevRenderedRowsCount = state.curRenderedRowsCount;
+        if (resetRowCount) {
+          this._prevRenderedRowsCount = 0;
+        } else {
+          this._prevRenderedRowsCount = state.curRenderedRowsCount;
+        }
+
         return {
           curRenderedRowsCount: rowsToRender,
           updateBatchId,
@@ -634,8 +657,8 @@ class IncrementalRowRenderer extends React.Component {
   }
 
   _scheduleRender() {
-    requestIdleCallback((deadline) => {
-      if (deadline.timeRemaining() >= 10) {
+    requestIdleCallback(deadline => {
+      if (deadline.timeRemaining() >= 3) {
         this.setState({shouldRender: true});
         this.props.onRender();
       } else {
