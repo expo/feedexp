@@ -67,12 +67,6 @@ var FeedView = React.createClass({
      */
     renderRow: PropTypes.func.isRequired,
     /**
-     * How many rows to render on initial component mount.  Use this to make
-     * it so that the first screen worth of data appears at one time instead of
-     * over the course of multiple frames.
-     */
-    initialListSize: PropTypes.number,
-    /**
      * Called when all rows have been rendered and the list has been scrolled
      * to within onEndReachedThreshold of the bottom.  The native scroll
      * event is provided.
@@ -181,7 +175,6 @@ var FeedView = React.createClass({
 
   getDefaultProps: function() {
     return {
-      initialListSize: DEFAULT_INITIAL_ROWS,
       pageSize: DEFAULT_PAGE_SIZE,
       renderScrollComponent: props => <ScrollView {...props} />,
       scrollRenderAheadDistance: DEFAULT_SCROLL_RENDER_AHEAD,
@@ -192,7 +185,7 @@ var FeedView = React.createClass({
 
   getInitialState: function() {
     return {
-      curRenderedRowsCount: this.props.initialListSize,
+      curRenderedRowsCount: 0,
       updateBatchId: 0,
       highlightedRow: {},
     };
@@ -229,16 +222,6 @@ var FeedView = React.createClass({
     if (this.props.dataSource !== nextProps.dataSource) {
       this._prevRenderedRowsCount = 0;
       this._pageInNewRows(nextProps);
-    }
-    if (this.props.initialListSize !== nextProps.initialListSize) {
-      this.setState((state, props) => {
-        return {
-          curRenderedRowsCount: Math.max(
-            state.curRenderedRowsCount,
-            props.initialListSize
-          ),
-        };
-      });
     }
   },
 
@@ -372,6 +355,7 @@ var FeedView = React.createClass({
         isVisible={this._isUpdatedBatchComplete(updateBatchId)}
         key={key + '-inc'}
         onRender={() => { this._onRenderRowInBatch(updateBatchId) }}
+        rowID={rowID}
         ref={view => { this._rowRefs[rowID] = view; }}
         render={this.props.renderRow.bind(null, rowData, sectionID, rowID, onRowHighlighted)}
       />
@@ -379,21 +363,21 @@ var FeedView = React.createClass({
   },
 
   _isUpdatedBatchComplete(updateBatchId) {
+    if (updateBatchId === 0) {
+      return true;
+    }
+
     return (
       this._updateBatches[updateBatchId].complete ===
-      this._updateBatches[updateBatchId].rows - 1
+      this._updateBatches[updateBatchId].rows
     );
   },
 
   _onRenderRowInBatch(updateBatchId) {
-    if (!this._updateBatches[updateBatchId]) {
-      return;
-    }
-
-    console.log(this._updateBatches[updateBatchId]);
     this._updateBatches[updateBatchId].complete += 1;
 
     if (this._isUpdatedBatchComplete(updateBatchId)) {
+      console.log(this._rowRefs.length);
       this._presentBatch(updateBatchId);
       this.props.onPresentBatch && this.props.onPresentBatch();
     }
@@ -405,7 +389,7 @@ var FeedView = React.createClass({
       firstRow,
     } = this._updateBatches[updateBatchId];
 
-    for (var i = firstRow; i < firstRow + rows - 1; i++) {
+    for (var i = firstRow; i <= firstRow + rows; i++) {
       this._rowRefs[i] && this._rowRefs[i].batchIsComplete();
     }
   },
@@ -477,35 +461,35 @@ var FeedView = React.createClass({
   },
 
   _pageInNewRows: function(props = this.props) {
-    var rowsToRender = Math.min(
-      this.state.curRenderedRowsCount + props.pageSize,
-      props.dataSource.getRowCount()
-    );
+    if (this._isUpdatedBatchComplete(this.state.updateBatchId)) {
+      var rowsToRender = Math.min(
+        this.state.curRenderedRowsCount + props.pageSize,
+        props.dataSource.getRowCount()
+      );
 
-    var updateBatchId = this.state.updateBatchId + 1;
+      var updateBatchId = this.state.updateBatchId + 1;
 
-    console.log({
-      rowsToRender,
-      rowCount: props.dataSource.getRowCount(),
-      curRenderedRowsCount: this.state.curRenderedRowsCount
-    });
-
-    this._updateBatches[updateBatchId] = {
-      rows: rowsToRender - this.state.curRenderedRowsCount,
-      complete: 0,
-      firstRow: this.state.curRenderedRowsCount + 1,
-    };
-
-    this.setState((state, props) => {
-      this._prevRenderedRowsCount = state.curRenderedRowsCount;
-      return {
-        curRenderedRowsCount: rowsToRender,
-        updateBatchId,
+      this._updateBatches[updateBatchId] = {
+        rows: rowsToRender - this.state.curRenderedRowsCount,
+        complete: 0,
+        firstRow: this.state.curRenderedRowsCount,
       };
-    }, () => {
-      this._measureAndUpdateScrollProps();
-      this._prevRenderedRowsCount = this.state.curRenderedRowsCount;
-    });
+
+      this.setState((state, props) => {
+        this._prevRenderedRowsCount = state.curRenderedRowsCount;
+        return {
+          curRenderedRowsCount: rowsToRender,
+          updateBatchId,
+        };
+      }, () => {
+        this._measureAndUpdateScrollProps();
+        this._prevRenderedRowsCount = this.state.curRenderedRowsCount;
+      });
+    } else {
+      requestAnimationFrame(() => {
+        this._pageInNewRows();
+      });
+    }
   },
 
   _getDistanceFromEnd: function(scrollProperties) {
@@ -638,6 +622,9 @@ class IncrementalRowRenderer extends React.Component {
         <View
           ref={view => { this._view = view; }}
           style={this.state.isBatchComplete ? {} : {position: 'absolute', opacity: 0}}>
+          <View style={{flex: 1, height: 35, backgroundColor: '#ccc', padding: 10,}}>
+            <React.Text>{this.props.rowID}</React.Text>
+          </View>
           {this.props.render()}
         </View>
       );

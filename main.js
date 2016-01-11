@@ -77,7 +77,7 @@ class Main extends React.Component {
         <FeedView
           contentContainerStyle={styles.listContentContainer}
           onPresentBatch={this._onPresentBatch.bind(this)}
-          pageSize={StoriesPerPage}
+          pageSize={10}
           renderRow={this._renderRow.bind(this)}
           dataSource={this.state.dataSource} />
         <TouchableOpacity style={styles.moreButtonContainer} onPress={this._loadStories.bind(this)}>
