@@ -1,0 +1,17 @@
+{
+  "name": "feedexp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "author": "brentvatne@gmail.com",
+  "dependencies": {
+    "immutable": "^3.7.6",
+    "lokka": "^1.6.1",
+    "lokka-transport-http": "^1.3.0",
+    "react-native": "github:exponentjs/react-native#2016-01-02"
+  },
+  "exp": {
+    "name": "feedexp",
+    "primaryColor": "#00A4D3"
+  }
+}
