@@ -220,7 +220,8 @@ var FeedView = React.createClass({
 
   componentWillReceiveProps: function(nextProps) {
     if (this.props.dataSource !== nextProps.dataSource) {
-      this._pageInNewRows(nextProps, true);
+      this._resetRowCount = true;
+      this._pageInNewRows(nextProps);
     }
   },
 
@@ -278,19 +279,6 @@ var FeedView = React.createClass({
         var shouldUpdateRow = rowCount >= this._prevRenderedRowsCount &&
           dataSource.rowShouldUpdate(sectionIdx, rowIdx);
         var key = 'r_' + comboID;
-
-        // var row =
-        //   <StaticRenderer
-        //     key={key}
-        //     shouldUpdate={!!shouldUpdateRow}
-        //     render={this.props.renderRow.bind(
-        //       null,
-        //       dataSource.getRowData(sectionIdx, rowIdx),
-        //       sectionID,
-        //       rowID,
-        //       this.onRowHighlighted
-        //     )}
-        //   />;
 
         var row =
           <StaticRenderer
@@ -381,6 +369,10 @@ var FeedView = React.createClass({
       return true;
     }
 
+    if (!this._updateBatches[updateBatchId]) {
+      return true;
+    }
+
     return (
       this._updateBatches[updateBatchId].complete ===
       this._updateBatches[updateBatchId].rows
@@ -388,6 +380,10 @@ var FeedView = React.createClass({
   },
 
   _onRenderRowInBatch(updateBatchId) {
+    if (!this._updateBatches[updateBatchId]) {
+      return;
+    }
+
     this._updateBatches[updateBatchId].complete += 1;
 
     if (this._isUpdatedBatchComplete(updateBatchId)) {
@@ -473,7 +469,7 @@ var FeedView = React.createClass({
     }
   },
 
-  _pageInNewRows: function(props = this.props, resetRowCount = false) {
+  _pageInNewRows: function(props = this.props) {
     if (this._isUpdatedBatchComplete(this.state.updateBatchId)) {
       var rowsToRender = Math.min(
         this.state.curRenderedRowsCount + props.pageSize,
@@ -494,8 +490,9 @@ var FeedView = React.createClass({
       }
 
       this.setState((state, props) => {
-        if (resetRowCount) {
+        if (this._resetRowCount) {
           this._prevRenderedRowsCount = 0;
+          this._resetRowCount = false;
         } else {
           this._prevRenderedRowsCount = state.curRenderedRowsCount;
         }
@@ -509,9 +506,13 @@ var FeedView = React.createClass({
         this._prevRenderedRowsCount = this.state.curRenderedRowsCount;
       });
     } else {
-      requestAnimationFrame(() => {
-        this._pageInNewRows();
-      });
+      if (!this._pageInTimeout) {
+        this._pageInTimeout = setTimeout(() => {
+          this._pageInNewRows();
+          clearTimeout(this._pageInTimeout);
+          this._pageInTimeout = null;
+        }, 100);
+      }
     }
   },
 
@@ -644,10 +645,7 @@ class IncrementalRowRenderer extends React.Component {
       return (
         <View
           ref={view => { this._view = view; }}
-          style={this.state.isBatchComplete ? {} : {position: 'absolute', opacity: 0}}>
-          <View style={{flex: 1, height: 35, backgroundColor: '#ccc', padding: 10,}}>
-            <React.Text>{this.props.rowID}</React.Text>
-          </View>
+          style={this.state.isBatchComplete ? {} : {position: 'absolute', left: 0, right: 0, opacity: 0}}>
           {this.props.render()}
         </View>
       );
@@ -658,7 +656,7 @@ class IncrementalRowRenderer extends React.Component {
 
   _scheduleRender() {
     requestIdleCallback(deadline => {
-      if (deadline.timeRemaining() >= 3) {
+      if (deadline.timeRemaining() >= 10) {
         this.setState({shouldRender: true});
         this.props.onRender();
       } else {

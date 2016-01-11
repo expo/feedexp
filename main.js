@@ -77,7 +77,7 @@ class Main extends React.Component {
         <FeedView
           contentContainerStyle={styles.listContentContainer}
           onPresentBatch={this._onPresentBatch.bind(this)}
-          pageSize={10}
+          pageSize={30}
           renderRow={this._renderRow.bind(this)}
           dataSource={this.state.dataSource} />
         <TouchableOpacity style={styles.moreButtonContainer} onPress={this._loadStories.bind(this)}>
@@ -104,7 +104,7 @@ class Main extends React.Component {
   }
 
   _renderRow(story) {
-    burnCPU(70);
+    burnCPU(50);
 
     return (
       <TouchableOpacity style={styles.row} onPress={() => this._removeStory(story) }>
