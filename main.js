@@ -2,12 +2,15 @@ import React, {
   AppRegistry,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 
 import Immutable, { List } from 'immutable';
 import { Lokka } from 'lokka';
 import { Transport } from 'lokka-transport-http';
+
+const FeedView = require('FeedView');
 
 let client = new Lokka({
   transport: new Transport('http://www.graphqlhub.com/graphql')
@@ -44,7 +47,12 @@ class Main extends React.Component {
   constructor(props) {
     super(props);
 
+    let dataSource = new FeedView.DataSource({
+      rowHasChanged: (r1, r2) => r1 !== r2,
+    });
+
     this.state = {
+      dataSource,
       offset: 0,
       stories: List(),
     };
@@ -57,29 +65,45 @@ class Main extends React.Component {
   render() {
     return (
       <View style={styles.container}>
-        <Text>
-          {JSON.stringify(this.state.stories.toJS())}
-        </Text>
-        <Text onPress={() => this._loadStories()}>
-          Moar!
-        </Text>
+        <FeedView
+          renderRow={this._renderRow.bind(this)}
+          dataSource={this.state.dataSource} />
+        <TouchableOpacity style={styles.moreButtonContainer} onPress={this._loadStories.bind(this)}>
+          <Text style={styles.moreButton}>
+            Load more!
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
-  _updateStories(newStories) {
-    this.setState(state => ({
-      offset: state.offset + StoriesPerPage,
-      stories: state.stories.concat(newStories),
-    }));
+  _renderRow(story) {
+    return (
+      <View style={styles.row}>
+        <Text>{story.get('title')}</Text>
+      </View>
+    );
   }
 
   async _loadStories() {
+    if (this._isLoading) {
+      return;
+    }
+
     try {
+      this._isLoading = true;
       let newStories = await fetchStories(StoriesPerPage, this.state.offset);
-      this._updateStories(newStories);
+      let stories = this.state.stories.concat(newStories);
+
+      this.setState(state => ({
+        dataSource: state.dataSource.cloneWithRows(stories.toArray()),
+        offset: state.offset + StoriesPerPage,
+        stories,
+      }));
     } catch(error) {
       alert(`Uh oh it didn't work`);
+    } finally {
+      this._isLoading = false;
     }
   }
 }
@@ -89,7 +113,20 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: 35,
     backgroundColor: '#eee',
-  }
+  },
+  moreButtonContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'black',
+  },
+  moreButton: {
+    color: '#fff',
+  },
 });
 
 
