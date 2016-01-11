@@ -76,6 +76,7 @@ class Main extends React.Component {
       <View style={styles.container}>
         <FeedView
           contentContainerStyle={styles.listContentContainer}
+          onPresentBatch={this._onPresentBatch.bind(this)}
           pageSize={StoriesPerPage}
           renderRow={this._renderRow.bind(this)}
           dataSource={this.state.dataSource} />
@@ -106,6 +107,10 @@ class Main extends React.Component {
     );
   }
 
+  _onPresentBatch() {
+    this.state.loadingOpacity.setValue(0);
+  }
+
   async _loadStories() {
     if (this._isLoading) {
       return;
@@ -117,7 +122,7 @@ class Main extends React.Component {
       let newStories = await fetchStories(StoriesPerPage, this.state.offset);
       let stories = this.state.stories.concat(newStories);
 
-      this.state.loadingOpacity.setValue(0.5);
+      this.state.loadingOpacity.setValue(0.7);
       requestAnimationFrame(() => {
         this.setState(state => ({
           dataSource: state.dataSource.cloneWithRows(stories.toArray()),
@@ -129,7 +134,7 @@ class Main extends React.Component {
       alert(`Uh oh it didn't work`);
     } finally {
       this._isLoading = false;
-      Animated.spring(this.state.loadingOpacity, {toValue: 0}).start();
+      Animated.spring(this.state.loadingOpacity, {toValue: 0.3}).start();
     }
   }
 }

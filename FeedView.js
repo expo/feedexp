@@ -12,6 +12,7 @@ var ScrollView = require('ScrollView');
 var ScrollResponder = require('ScrollResponder');
 var StaticRenderer = require('StaticRenderer');
 var TimerMixin = require('react-timer-mixin');
+var View = require('View');
 
 var isEmpty = require('isEmpty');
 var logError = require('logError');
@@ -20,7 +21,7 @@ var merge = require('merge');
 var PropTypes = React.PropTypes;
 
 var DEFAULT_PAGE_SIZE = 1;
-var DEFAULT_INITIAL_ROWS = 10;
+var DEFAULT_INITIAL_ROWS = 0;
 var DEFAULT_SCROLL_RENDER_AHEAD = 1000;
 var DEFAULT_END_REACHED_THRESHOLD = 1000;
 var DEFAULT_SCROLL_CALLBACK_THROTTLE = 50;
@@ -192,6 +193,7 @@ var FeedView = React.createClass({
   getInitialState: function() {
     return {
       curRenderedRowsCount: this.props.initialListSize,
+      updateBatchId: 0,
       highlightedRow: {},
     };
   },
@@ -211,6 +213,8 @@ var FeedView = React.createClass({
     this._visibleRows = {};
     this._prevRenderedRowsCount = 0;
     this._sentEndForContentLength = null;
+    this._updateBatches = {};
+    this._rowRefs = {};
   },
 
   componentDidMount: function() {
@@ -223,15 +227,8 @@ var FeedView = React.createClass({
 
   componentWillReceiveProps: function(nextProps) {
     if (this.props.dataSource !== nextProps.dataSource) {
-      this.setState((state, props) => {
-        this._prevRenderedRowsCount = 0;
-        return {
-          curRenderedRowsCount: Math.min(
-            state.curRenderedRowsCount + props.pageSize,
-            props.dataSource.getRowCount()
-          ),
-        };
-      });
+      this._prevRenderedRowsCount = 0;
+      this._pageInNewRows(nextProps);
     }
     if (this.props.initialListSize !== nextProps.initialListSize) {
       this.setState((state, props) => {
@@ -296,12 +293,15 @@ var FeedView = React.createClass({
         var comboID = sectionID + '_' + rowID;
         var shouldUpdateRow = rowCount >= this._prevRenderedRowsCount &&
           dataSource.rowShouldUpdate(sectionIdx, rowIdx);
+        var key = 'r_' + comboID;
         var row =
           <StaticRenderer
-            key={'r_' + comboID}
+            key={key}
             shouldUpdate={!!shouldUpdateRow}
-            render={this.props.renderRow.bind(
-              null,
+            render={this._renderRow.bind(
+              this,
+              key,
+              this.state.updateBatchId,
               dataSource.getRowData(sectionIdx, rowIdx),
               sectionID,
               rowID,
@@ -366,6 +366,50 @@ var FeedView = React.createClass({
     }, header, bodyComponents, footer);
   },
 
+  _renderRow(key, updateBatchId, rowData, sectionID, rowID, onRowHighlighted) {
+    return (
+      <IncrementalRowRenderer
+        isVisible={this._isUpdatedBatchComplete(updateBatchId)}
+        key={key + '-inc'}
+        onRender={() => { this._onRenderRowInBatch(updateBatchId) }}
+        ref={view => { this._rowRefs[rowID] = view; }}
+        render={this.props.renderRow.bind(null, rowData, sectionID, rowID, onRowHighlighted)}
+      />
+    );
+  },
+
+  _isUpdatedBatchComplete(updateBatchId) {
+    return (
+      this._updateBatches[updateBatchId].complete ===
+      this._updateBatches[updateBatchId].rows - 1
+    );
+  },
+
+  _onRenderRowInBatch(updateBatchId) {
+    if (!this._updateBatches[updateBatchId]) {
+      return;
+    }
+
+    console.log(this._updateBatches[updateBatchId]);
+    this._updateBatches[updateBatchId].complete += 1;
+
+    if (this._isUpdatedBatchComplete(updateBatchId)) {
+      this._presentBatch(updateBatchId);
+      this.props.onPresentBatch && this.props.onPresentBatch();
+    }
+  },
+
+  _presentBatch(updateBatchId) {
+    let {
+      rows,
+      firstRow,
+    } = this._updateBatches[updateBatchId];
+
+    for (var i = firstRow; i < firstRow + rows - 1; i++) {
+      this._rowRefs[i] && this._rowRefs[i].batchIsComplete();
+    }
+  },
+
   /**
    * Private methods
    */
@@ -402,7 +446,7 @@ var FeedView = React.createClass({
       this.scrollProperties.visibleLength = visibleLength;
       this._updateVisibleRows();
       this._renderMoreRowsIfNeeded();
-    } 
+    }
     this.props.onLayout && this.props.onLayout(event);
   },
 
@@ -425,22 +469,38 @@ var FeedView = React.createClass({
       this._maybeCallOnEndReached();
       return;
     }
- 
+
     var distanceFromEnd = this._getDistanceFromEnd(this.scrollProperties);
     if (distanceFromEnd < this.props.scrollRenderAheadDistance) {
       this._pageInNewRows();
     }
   },
 
-  _pageInNewRows: function() {
+  _pageInNewRows: function(props = this.props) {
+    var rowsToRender = Math.min(
+      this.state.curRenderedRowsCount + props.pageSize,
+      props.dataSource.getRowCount()
+    );
+
+    var updateBatchId = this.state.updateBatchId + 1;
+
+    console.log({
+      rowsToRender,
+      rowCount: props.dataSource.getRowCount(),
+      curRenderedRowsCount: this.state.curRenderedRowsCount
+    });
+
+    this._updateBatches[updateBatchId] = {
+      rows: rowsToRender - this.state.curRenderedRowsCount,
+      complete: 0,
+      firstRow: this.state.curRenderedRowsCount + 1,
+    };
+
     this.setState((state, props) => {
-      var rowsToRender = Math.min(
-        state.curRenderedRowsCount + props.pageSize,
-        props.dataSource.getRowCount()
-      );
       this._prevRenderedRowsCount = state.curRenderedRowsCount;
       return {
-        curRenderedRowsCount: rowsToRender
+        curRenderedRowsCount: rowsToRender,
+        updateBatchId,
       };
     }, () => {
       this._measureAndUpdateScrollProps();
@@ -550,5 +610,53 @@ var FeedView = React.createClass({
     this.props.onScroll && this.props.onScroll(e);
   },
 });
+
+class IncrementalRowRenderer extends React.Component {
+
+  constructor(props) {
+    super(props);
+
+    this.state = {
+      shouldRender: false,
+      isBatchComplete: this.props.isBatchComplete,
+    };
+  }
+
+  batchIsComplete() {
+    if (this._view) {
+      this._view.setNativeProps({style: {position: 'relative', opacity: 1}});
+    }
+  }
+
+  componentDidMount() {
+    this._scheduleRender();
+  }
+
+  render() {
+    if (this.state.shouldRender) {
+      return (
+        <View
+          ref={view => { this._view = view; }}
+          style={this.state.isBatchComplete ? {} : {position: 'absolute', opacity: 0}}>
+          {this.props.render()}
+        </View>
+      );
+    } else {
+      return null;
+    }
+  }
+
+  _scheduleRender() {
+    requestIdleCallback((deadline) => {
+      if (deadline.timeRemaining() >= 10) {
+        this.setState({shouldRender: true});
+        this.props.onRender();
+      } else {
+        this._scheduleRender();
+      }
+    });
+  }
+
+}
 
 module.exports = FeedView;
